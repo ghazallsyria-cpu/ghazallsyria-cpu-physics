@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { BrochureSettings, BrochureFeature } from '../types';
 import { dbService } from '../services/db';
@@ -51,8 +52,32 @@ const AdminBrochureManager: React.FC = () => {
         }
     };
 
+    const addFeature = (section: keyof BrochureSettings) => {
+        if (!settings) return;
+        const newSettings = { ...settings };
+        const features = [...(newSettings[section] as BrochureFeature[])];
+        features.push({
+            id: `f_${Date.now()}`,
+            icon: 'Star',
+            title: 'ميزة جديدة',
+            description: 'وصف الميزة...',
+            color: 'amber'
+        });
+        (newSettings as any)[section] = features;
+        setSettings(newSettings);
+    };
+
+    const removeFeature = (section: keyof BrochureSettings, index: number) => {
+        if (!settings) return;
+        const newSettings = { ...settings };
+        const features = [...(newSettings[section] as BrochureFeature[])];
+        features.splice(index, 1);
+        (newSettings as any)[section] = features;
+        setSettings(newSettings);
+    };
+
     if (isLoading) {
-        return <div className="p-20 text-center"><RefreshCw className="animate-spin text-white" /></div>;
+        return <div className="p-20 text-center"><RefreshCw className="animate-spin text-white mx-auto" /></div>;
     }
 
     if (!settings) {
@@ -69,11 +94,26 @@ const AdminBrochureManager: React.FC = () => {
                 className="w-full bg-black/40 p-3 rounded-lg border border-white/10 text-white"
                 rows={2}
             />
-            <label className="text-xs text-gray-400 mt-4 block">المميزات</label>
+            <div className="flex justify-between items-center mt-4">
+                <label className="text-xs text-gray-400">المميزات</label>
+                <button 
+                    onClick={() => addFeature(sectionName.replace('Title', 'Features') as keyof BrochureSettings)}
+                    className="text-[10px] font-bold text-green-400 flex items-center gap-1 hover:text-green-300"
+                >
+                    <Plus size={12} /> إضافة ميزة
+                </button>
+            </div>
+            
             {(settings[sectionName.replace('Title', 'Features') as keyof BrochureSettings] as BrochureFeature[]).map((feature, index) => {
                 const featureSectionName = sectionName.replace('Title', 'Features') as keyof BrochureSettings;
                 return (
-                    <div key={feature.id} className="p-4 bg-white/5 rounded-xl border border-white/5 space-y-3">
+                    <div key={feature.id} className="p-4 bg-white/5 rounded-xl border border-white/5 space-y-3 relative group">
+                        <button 
+                            onClick={() => removeFeature(featureSectionName, index)}
+                            className="absolute top-2 left-2 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                            <Trash2 size={14} />
+                        </button>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-[10px] text-gray-500">الأيقونة (اسم من lucide-react)</label>

@@ -703,7 +703,35 @@ class DBService {
   async getNotificationSettings() { return (await this.getSetting('notifications')) || {} as NotificationSettings; }
   async saveNotificationSettings(s: NotificationSettings) { await this.saveSetting('notifications', s); }
   
-  async getBrochureSettings() { return (await this.getSetting('brochure')) || {} as BrochureSettings; }
+  // Updated to provide a robust default
+  async getBrochureSettings() { 
+      const settings = await this.getSetting('brochure');
+      if (!settings || Object.keys(settings).length === 0) {
+          return {
+            heroTitle: 'الفيزياء <span class="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-300">الحديثة</span>',
+            heroSubtitle: 'منصة تعليمية متطورة تدمج الذكاء الاصطناعي مع المنهج الكويتي.',
+            section1Title: 'مميزات ذكية',
+            section1Features: [
+                { id: 'f1', icon: 'BrainCircuit', title: 'مساعد ذكي', description: 'إجابات دقيقة', color: 'cyan' },
+                { id: 'f2', icon: 'Waypoints', title: 'مسارات تفاعلية', description: 'تعلم مخصص', color: 'amber' }
+            ],
+            section2Title: 'تحليلات الأداء',
+            section2Features: [
+                { id: 'f3', icon: 'BarChart3', title: 'تقارير مفصلة', description: 'تابع تقدمك', color: 'cyan' },
+                { id: 'f4', icon: 'Star', title: 'نقاط وجوائز', description: 'نظام تحفيزي', color: 'amber' }
+            ],
+            section3Title: 'أمان وموثوقية',
+            section3Features: [
+                { id: 'f5', icon: 'Lock', title: 'حماية البيانات', description: 'أمان عالي', color: 'cyan' },
+                { id: 'f6', icon: 'Sparkles', title: 'محتوى معتمد', description: 'جودة عالية', color: 'amber' }
+            ],
+            ctaTitle: 'ابدأ الآن',
+            ctaSubtitle: 'انضم للنخبة',
+            ctaButtonText: 'تسجيل دخول'
+          } as BrochureSettings;
+      }
+      return settings;
+  }
   async saveBrochureSettings(s: BrochureSettings) { await this.saveSetting('brochure', s); }
   
   async getMaintenanceSettings() { return (await this.getSetting('maintenance')) || {} as MaintenanceSettings; }

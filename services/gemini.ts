@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { AISolverResult, User, StudentQuizAttempt, Question, Curriculum, AILessonSchema } from "../types";
 
@@ -37,12 +38,9 @@ const fileToGenerativePart = (dataUrl: string) => {
     };
 };
 
-// Access the API key safely using Vite's env standard
-const getApiKey = () => import.meta.env.VITE_GEMINI_API_KEY;
-
 export const getAdvancedPhysicsInsight = async (userMsg: string, grade: string, subject: 'Physics' | 'Chemistry') => {
   try {
-    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const subjectName = subject === 'Physics' ? 'الفيزياء' : 'الكيمياء';
     const response = await ai.models.generateContent({
       model: "gemini-3-pro-preview",
@@ -64,7 +62,7 @@ export const getAdvancedPhysicsInsight = async (userMsg: string, grade: string, 
 
 export const getPhysicsExplanation = async (prompt: string, grade: string) => {
   try {
-    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `اشرح لصف ${grade}: ${prompt}`,
@@ -78,7 +76,7 @@ export const getPhysicsExplanation = async (prompt: string, grade: string) => {
 };
 
 export const solvePhysicsProblem = async (problem: string): Promise<AISolverResult> => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
     model: "gemini-3-pro-preview",
     contents: `حل المسألة الفيزيائية التالية: ${problem}`,
@@ -102,7 +100,7 @@ export const solvePhysicsProblem = async (problem: string): Promise<AISolverResu
 };
 
 export const getPerformanceAnalysis = async (user: User, attempts: StudentQuizAttempt[]): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const prompt = `
     حلل أداء الطالب ${user.name} بناءً على نتائج اختباراته:
     ${JSON.stringify(attempts, null, 2)}
@@ -113,7 +111,7 @@ export const getPerformanceAnalysis = async (user: User, attempts: StudentQuizAt
 };
 
 export const generatePhysicsVisualization = async (prompt: string): Promise<string> => {
-    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     let operation = await ai.models.generateVideos({
         model: 'veo-3.1-fast-generate-preview',
@@ -136,7 +134,7 @@ export const generatePhysicsVisualization = async (prompt: string): Promise<stri
     }
 
     // Pass the API key to fetch the video securely
-    const response = await fetch(`${downloadLink}&key=${getApiKey()}`);
+    const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
     const blob = await response.blob();
     return URL.createObjectURL(blob);
 };
@@ -147,7 +145,7 @@ export const extractBankQuestionsAdvanced = async (
   subject: string,
   unit: string
 ): Promise<{ questions: Question[] }> => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
     model: "gemini-3-pro-preview",
     contents: `Digitize the following questions text for grade ${grade}, subject ${subject}, unit ${unit}. Extract all questions into a structured JSON format. For each question, provide: question_text, type ('mcq', 'short_answer', 'essay'), choices (array of {key: 'A', text: '...'}), correct_answer (the key of the correct choice), difficulty ('Easy', 'Medium', 'Hard'), category, solution (detailed explanation), steps_array (if applicable), and common_errors (if applicable). Here is the text:\n\n${rawText}`,
@@ -199,7 +197,7 @@ export const digitizeExamPaper = async (
   grade: string,
   subject: string,
 ): Promise<{ questions: Question[] }> => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const imagePart = fileToGenerativePart(imageDataUrl);
 
   const textPart = {
@@ -249,7 +247,7 @@ export const digitizeExamPaper = async (
 export const verifyQuestionQuality = async (
   question: Question
 ): Promise<{ valid: boolean; feedback: string }> => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const questionString = JSON.stringify({
     text: question.text,
@@ -291,7 +289,7 @@ export const convertTextbookToLesson = async (
   grade: string = "12",
   imageData?: string
 ): Promise<AILessonSchema | null> => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const systemInstruction = `
 أنت محرك تحويل محتوى تعليمي متخصص في المناهج الدراسية.

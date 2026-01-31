@@ -16,7 +16,6 @@ class DBService {
   
   // --- 🛠 Helpers ---
 
-  // تحويل snake_case (قاعدة البيانات) إلى camelCase (التطبيق)
   private mapProfileToUser(profile: any): User {
     if (!profile) return null as any;
     return {
@@ -28,11 +27,11 @@ class DBService {
         role: profile.role as UserRole,
         grade: profile.grade,
         subscription: profile.subscription_status === 'premium' ? 'premium' : 'free',
-        status: 'active', // Default in SQL
+        status: 'active',
         createdAt: profile.created_at,
         photoURL: profile.photo_url,
         progress: profile.progress || { completedLessonIds: [], points: 0, achievements: [] },
-        weeklyReports: [], // Needs separate fetch if normalized
+        weeklyReports: [],
         specialization: profile.specialization,
         yearsExperience: profile.years_experience,
         bio: profile.bio,
@@ -80,7 +79,6 @@ class DBService {
           subscription_status: user.subscription,
           photo_url: user.photoURL,
           progress: user.progress,
-          // Teacher fields
           specialization: user.specialization,
           years_experience: user.yearsExperience,
           bio: user.bio,
@@ -110,7 +108,6 @@ class DBService {
       })
       .subscribe();
 
-      // Initial fetch
       this.getUser(uid).then(callback);
 
       return () => { supabase.removeChannel(channel); };
@@ -131,13 +128,10 @@ class DBService {
   }
 
   async deleteUser(uid: string) {
-      // Deleting from auth.users (via Edge Function usually) or simply profile
-      // Ideally, use an Admin function. Here we just delete profile for demo.
       await supabase.from('profiles').delete().eq('id', uid);
   }
 
   subscribeToUsers(callback: (users: User[]) => void, role: UserRole): () => void {
-      // Realtime subscription for a list is heavy, usually better to poll or just fetch on mount for lists
       this.getUsersByRole(role).then(callback);
       return () => {};
   }
@@ -153,18 +147,11 @@ class DBService {
     try {
         const { data, error } = await supabase
             .from('curriculums')
-            .select(`
-                *,
-                units (
-                    *,
-                    lessons (*)
-                )
-            `)
-            .order('created_at', { ascending: true }); // Curriculum order
+            .select(`*, units (*, lessons (*))`)
+            .order('created_at', { ascending: true });
             
         if (error) throw error;
 
-        // Sort units and lessons in JS if not strictly ordered by DB
         return data.map((c: any) => ({
             ...c,
             units: (c.units || []).sort((a: any, b: any) => (a.order || 0) - (b.order || 0)).map((u: any) => ({
@@ -204,7 +191,7 @@ class DBService {
          title: data.title,
          type: data.type,
          duration: data.duration,
-         content: data.content, // JSONB maps directly
+         content: data.content,
          templateType: data.template_type,
          pathRootSceneId: data.path_root_scene_id,
          isPinned: data.is_pinned,
@@ -213,7 +200,6 @@ class DBService {
   }
   
   async saveLesson(lesson: Lesson, unitId: string): Promise<Lesson> {
-      // 1. Prepare data (camelCase to snake_case mapping is partly automatic or manual)
       const lessonData = {
           title: lesson.title,
           unit_id: unitId,
@@ -225,13 +211,10 @@ class DBService {
           is_pinned: lesson.isPinned
       };
 
-      // 2. Upsert
       let query;
       if (lesson.id && !lesson.id.startsWith('l_')) {
-          // Update existing
           query = supabase.from('lessons').update(lessonData).eq('id', lesson.id);
       } else {
-          // Insert new
           query = supabase.from('lessons').insert([lessonData]);
       }
 
@@ -265,7 +248,6 @@ class DBService {
   async deleteLesson(lessonId: string) { await supabase.from('lessons').delete().eq('id', lessonId); }
   
   async updateUnitsOrderSupabase(units: Unit[]) {
-      // Update ordering one by one for simplicity and safety
       for (const [index, unit] of units.entries()) {
           await supabase.from('units').update({ order: index }).eq('id', unit.id);
       }
@@ -275,11 +257,10 @@ class DBService {
       const sqlUpdates: any = {};
       if (updates.pathRootSceneId) sqlUpdates.path_root_scene_id = updates.pathRootSceneId;
       if (updates.title) sqlUpdates.title = updates.title;
-      // ... map other fields
       await supabase.from('lessons').update(sqlUpdates).eq('id', lessonId);
   }
 
-  // --- ❓ Quizzes, Questions, Attempts ---
+  // --- ❓ Quizzes & Questions ---
 
   async getQuizzes(grade?: string): Promise<Quiz[]> {
       let query = supabase.from('quizzes').select('*');
@@ -288,9 +269,6 @@ class DBService {
       const { data } = await query;
       if (!data) return [];
 
-      // Need to fetch question IDs separately or use join if we had a join table visible in types
-      // The current types suggest `questionIds: string[]`.
-      // Let's fetch the mapping.
       const quizIds = data.map(q => q.id);
       const { data: mappings } = await supabase.from('quiz_questions').select('*').in('quiz_id', quizIds);
       
@@ -304,7 +282,7 @@ class DBService {
           duration: q.duration,
           isPremium: q.is_premium,
           maxAttempts: q.max_attempts,
-          totalScore: 0, // Calculated from questions usually
+          totalScore: 0,
           questionIds: mappings?.filter(m => m.quiz_id === q.id).map(m => m.question_id) || []
       }));
   }
@@ -342,8 +320,7 @@ class DBService {
           difficulty: q.difficulty,
           solution: q.solution,
           imageUrl: q.image_url,
-          // map others
-          grade: quiz.grade, // fallback
+          grade: quiz.grade,
           subject: quiz.subject
       }));
 
@@ -370,7 +347,6 @@ class DBService {
           await supabase.from('quizzes').update(quizRow).eq('id', quiz.id);
       }
 
-      // Handle Relations (Delete all then insert new)
       await supabase.from('quiz_questions').delete().eq('quiz_id', quizId);
       if (quiz.questionIds.length > 0) {
           const relations = quiz.questionIds.map(qId => ({ quiz_id: quizId, question_id: qId }));
@@ -394,7 +370,7 @@ class DBService {
           difficulty: q.difficulty,
           solution: q.solution,
           imageUrl: q.image_url,
-          grade: '12', // default
+          grade: '12',
           subject: 'Physics'
       }));
   }
@@ -449,10 +425,7 @@ class DBService {
   async getAttemptsForQuiz(quizId: string): Promise<StudentQuizAttempt[]> {
       const { data } = await supabase
         .from('student_quiz_attempts')
-        .select(`
-            *,
-            profiles (name)
-        `)
+        .select(`*, profiles (name)`)
         .eq('quiz_id', quizId)
         .order('completed_at', { ascending: false });
 
@@ -498,21 +471,21 @@ class DBService {
       return {
           id: row.id,
           studentId: row.student_id,
-          studentName: '', // Usually fetched via join or separate call
+          studentName: '',
           quizId: row.quiz_id,
           score: row.score,
           maxScore: row.max_score,
-          totalQuestions: 0, // Not stored in attempt row usually
+          totalQuestions: 0,
           completedAt: row.completed_at,
           answers: row.answers,
           timeSpent: row.time_spent,
-          attemptNumber: 0, // Needs calc
+          attemptNumber: 0,
           status: row.status,
           manualGrades: row.manual_grades
       };
   }
 
-  // --- 📦 Assets (Supabase Storage) ---
+  // --- 📦 Assets ---
 
   async uploadAsset(file: File): Promise<Asset> {
       const fileName = `${Date.now()}_${file.name.replace(/\s/g, '_')}`;
@@ -552,12 +525,8 @@ class DBService {
   // --- 🎥 Live Sessions ---
 
   async getLiveSessions(): Promise<LiveSession[]> {
-      // We can use a simple table 'liveSessions' but since it's not in schema.sql explicitly (I added generic ones), 
-      // let's assume we create a table or use a JSON store. 
-      // For robustness, I'll assume a table 'live_sessions' exists or fallback to Firestore-like collection via table if needed.
-      // Ideally, use a 'live_sessions' table.
       const { data, error } = await supabase.from('live_sessions').select('*');
-      if (error) return []; // Fallback empty if table missing
+      if (error) return [];
       
       return data.map(s => ({
           id: s.id,
@@ -576,7 +545,7 @@ class DBService {
   }
 
   subscribeToLiveSessions(callback: (sessions: LiveSession[]) => void): () => void {
-      this.getLiveSessions().then(callback); // Initial
+      this.getLiveSessions().then(callback);
       const channel = supabase.channel('public:live_sessions')
           .on('postgres_changes', { event: '*', schema: 'public', table: 'live_sessions' }, () => {
               this.getLiveSessions().then(callback);
@@ -609,7 +578,7 @@ class DBService {
 
   async deleteLiveSession(id: string) { await supabase.from('live_sessions').delete().eq('id', id); }
 
-  // --- 🧩 Other Features ---
+  // --- 🧩 Interactive Lessons ---
 
   async getLessonScenesForBuilder(lessonId: string): Promise<LessonScene[]> {
       const { data } = await supabase.from('lesson_scenes').select('*').eq('lesson_id', lessonId);
@@ -665,7 +634,6 @@ class DBService {
           uploaded_files: progress.uploaded_files,
           updated_at: new Date().toISOString()
       };
-      // Upsert based on composite key (student_id, lesson_id)
       await supabase.from('student_lesson_progress').upsert(row, { onConflict: 'student_id,lesson_id' });
   }
 
@@ -690,8 +658,6 @@ class DBService {
   }
 
   async getLessonAnalytics(lessonId: string): Promise<LessonAnalyticsData> {
-      // This logic is complex for frontend. Ideally, use a Supabase RPC function.
-      // Simulating fetching raw events and aggregating.
       const { data } = await supabase.from('student_interaction_events').select('*').eq('lesson_id', lessonId);
       
       const events = (data || []).map(e => ({ ...e, id: e.id.toString() } as StudentInteractionEvent));
@@ -720,9 +686,8 @@ class DBService {
       };
   }
 
-  // --- 🛠 Generic Settings & Content (JSON Stores or specific tables) ---
+  // --- 🛠 Generic Settings ---
   
-  // Helper to get/set settings from a 'settings' table key-value store
   async getSetting(key: string): Promise<any> {
       const { data } = await supabase.from('settings').select('value').eq('key', key).single();
       return data?.value || null;
@@ -746,7 +711,6 @@ class DBService {
   
   subscribeToMaintenance(callback: (s: MaintenanceSettings | null) => void) {
       this.getMaintenanceSettings().then(callback);
-      // Realtime logic for settings table update on key='maintenance'
       return () => {};
   }
 
@@ -829,8 +793,7 @@ class DBService {
       const { data, error } = await supabase.from('invoices').insert([row]).select().single();
       if (error) throw error;
       
-      // Update User subscription
-      await this.updateUserRole(userId, user?.role || 'student'); // Just re-trigger logic, ideally update subscription column directly
+      await this.updateUserRole(userId, user?.role || 'student');
       await supabase.from('profiles').update({ subscription_status: 'premium' }).eq('id', userId);
 
       return this.mapInvoice(data);
@@ -881,7 +844,6 @@ class DBService {
   }
   
   async saveForumSections(sections: ForumSection[]) {
-      // Complex nested update. Simplified:
       for (const section of sections) {
           const { data: s } = await supabase.from('forum_sections').upsert({
               id: section.id.startsWith('sec_') ? undefined : section.id,
@@ -944,11 +906,7 @@ class DBService {
   }
   
   async addForumReply(postId: string, reply: any) {
-      // In Postgres, ideally use a separate replies table. 
-      // Assuming JSONB column for now to match old structure.
       const newReply = { ...reply, id: `rep_${Date.now()}`, timestamp: new Date().toISOString() };
-      
-      // Need to fetch current, append, update. Not atomic but works for now.
       const { data } = await supabase.from('forum_posts').select('replies').eq('id', postId).single();
       const replies = data?.replies || [];
       replies.push(newReply);
@@ -965,7 +923,7 @@ class DBService {
   async deleteForumPost(id: string) { await supabase.from('forum_posts').delete().eq('id', id); }
 
   async initializeForumSystem() {
-      // Logic to insert default rows if empty
+      // Placeholder for future initialization logic
   }
 
   // --- Notifications ---
@@ -1095,7 +1053,6 @@ class DBService {
   
   async getAdvancedFinancialStats() {
       const { data } = await supabase.from('invoices').select('amount, status, created_at');
-      // Calculate locally
       let total = 0;
       (data || []).forEach((i: any) => { if (i.status === 'PAID') total += i.amount; });
       return { daily: 0, monthly: 0, yearly: 0, total, pending: 0 };

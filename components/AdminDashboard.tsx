@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BookOpen, Users, Briefcase, Settings, Video, RefreshCw, HeartPulse, Library, MessageSquare, ClipboardList, ShieldCheck, ShieldAlert, Lock, CreditCard, Newspaper, FlaskConical, Zap, Sparkles, Cpu } from 'lucide-react';
+import { BookOpen, Users, Briefcase, Settings, Video, RefreshCw, HeartPulse, Library, MessageSquare, ClipboardList, ShieldCheck, ShieldAlert, Lock, CreditCard, Newspaper, FlaskConical, Zap, Sparkles, Cpu, Database } from 'lucide-react';
 import { dbService } from '../services/db';
 import { auth } from '../services/firebase';
 import EscalatedPostsWidget from './EscalatedPostsWidget';
@@ -47,7 +48,7 @@ const AdminDashboard: React.FC = () => {
     { view: 'admin-managers', icon: ShieldCheck, title: 'إدارة المدراء', description: 'فريق الإدارة.' },
     { view: 'admin-forums', icon: MessageSquare, title: 'المنتديات', description: 'هيكل الأقسام.' },
     { view: 'admin-forum-posts', icon: ShieldAlert, title: 'الرقابة', description: 'إدارة المنشورات.' },
-    { view: 'admin-security-fix', icon: Lock, title: 'الأمان', description: 'إصلاح القواعد.' },
+    { view: 'admin-security-fix', icon: Database, title: 'تهيئة البيانات', description: 'إنشاء الجداول (SQL).' },
     { view: 'admin-live-sessions', icon: Video, title: 'البث المباشر', description: 'جدولة الحصص.' },
     { view: 'admin-assets', icon: Library, title: 'المكتبة', description: 'إدارة الوسائط.' },
     { view: 'admin-settings', icon: Settings, title: 'الإعدادات', description: 'سياسات النظام.' },

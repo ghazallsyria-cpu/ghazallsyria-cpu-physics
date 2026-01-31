@@ -39,7 +39,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onBack }) => {
                 data: {
                     full_name: name,
                     phone: phone,
-                    role: 'student', // Default metadata
+                    role: 'student',
                 }
             }
         });
@@ -47,7 +47,6 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onBack }) => {
         if (authError) throw authError;
         if (!authData.user) throw new Error("No user returned");
 
-        // Prepare User object for app state (Profile created via trigger or manually below)
         const newUser: User = {
             uid: authData.user.id, 
             name, 
@@ -62,7 +61,6 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onBack }) => {
             progress: { completedLessonIds: [], achievements: [], points: 0 }
         };
         
-        // Ensure profile exists in DB (Trigger might handle this, but explicit save is safer for custom fields)
         await dbService.saveUser(newUser);
         user = newUser;
 
@@ -99,7 +97,6 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onBack }) => {
           }
       });
       if (error) throw error;
-      // Redirect happens automatically
     } catch (error: any) {
       console.error(error);
       setMessage({ text: 'فشل تسجيل الدخول عبر جوجل.', type: 'error' });

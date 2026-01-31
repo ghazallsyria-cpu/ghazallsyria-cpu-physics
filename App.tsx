@@ -3,7 +3,7 @@ import React, { useState, useEffect, Suspense, lazy, createContext } from 'react
 import { Routes, Route, Outlet, useNavigate, useLocation, Navigate, NavLink } from 'react-router-dom';
 import { User, AppBranding, MaintenanceSettings, ViewState } from './types';
 import { dbService } from './services/db';
-import { supabase } from './services/supabase'; // Updated Import
+import { supabase } from './services/supabase';
 import ProtectedRoute, { AuthContext } from './components/ProtectedRoute';
 import { Bell, ArrowRight, Menu, RefreshCw, LayoutDashboard, ShieldAlert } from 'lucide-react';
 
@@ -53,7 +53,6 @@ const AdminAnalytics = lazy(() => import('./components/AdminAnalytics'));
 const MarketingBrochure = lazy(() => import('./components/MarketingBrochure'));
 const AdminBrochureManager = lazy(() => import('./components/AdminBrochureManager'));
 
-// A reusable layout for all authenticated pages that include the sidebar and header.
 const AppLayout: React.FC<{ user: User; branding: AppBranding; onLogout: () => void; }> = ({ user, branding, onLogout }) => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const navigate = useNavigate();
@@ -82,7 +81,7 @@ const AppLayout: React.FC<{ user: User; branding: AppBranding; onLogout: () => v
                 </header>
                 <main className={`flex-1 w-full max-w-screen-2xl mx-auto overflow-x-hidden relative p-4 md:p-8 lg:p-12`}>
                     <Suspense fallback={<div className="flex flex-col items-center justify-center h-[50vh] gap-4"><RefreshCw className="w-12 h-12 text-amber-400 animate-spin" /></div>}>
-                        <Outlet /> {/* Child routes render here */}
+                        <Outlet /> 
                     </Suspense>
                     {user?.role === 'student' && <FloatingNav />}
                 </main>
@@ -99,7 +98,6 @@ const App: React.FC = () => {
     const navigate = useNavigate();
 
     useEffect(() => {
-        // Supabase Auth Listener
         supabase.auth.getSession().then(({ data: { session } }) => {
             handleSession(session);
         });
@@ -113,13 +111,11 @@ const App: React.FC = () => {
 
     const handleSession = async (session: any) => {
         if (session?.user) {
-            // User is signed in, fetch profile
             dbService.subscribeToUser(session.user.id, (updatedUser) => {
                 setUser(updatedUser || null);
                 setIsAuthLoading(false);
             });
         } else {
-            // User is signed out
             setUser(null);
             setIsAuthLoading(false);
         }

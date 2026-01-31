@@ -10,44 +10,58 @@ ALTER DEFAULT PRIVILEGES REVOKE ALL ON TABLES FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES REVOKE ALL ON FUNCTIONS FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES REVOKE ALL ON SEQUENCES FROM PUBLIC;
 
--- 2. PROFILES TABLE
+-- 2. PROFILES TABLE (BASE CREATION)
 CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID NOT NULL REFERENCES auth.users ON DELETE CASCADE,
-  name TEXT,
-  email TEXT UNIQUE,
-  phone TEXT,
-  gender TEXT,
-  role TEXT DEFAULT 'student'::text NOT NULL,
-  grade TEXT,
-  subscription_status TEXT DEFAULT 'free'::text NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  progress JSONB DEFAULT '{}'::jsonb,
-  photo_url TEXT,
-  specialization TEXT,
-  years_experience INT,
-  bio TEXT,
-  avatar TEXT,
-  grades_taught TEXT[],
-  permissions TEXT[],
-  job_title TEXT,
-  last_seen TIMESTAMPTZ,
   PRIMARY KEY (id)
 );
 
--- ENSURE CRITICAL COLUMNS EXIST (Migration Fix)
+-- 2.1 ENSURE ALL COLUMNS EXIST (Safe Migration)
+-- This block adds columns if they are missing, preventing "column does not exist" errors
 DO $$
 BEGIN
+    -- Basic Identity
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS name TEXT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS email TEXT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS phone TEXT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS gender TEXT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS photo_url TEXT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+    
+    -- App Logic
     ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'student'::text NOT NULL;
     ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS subscription_status TEXT DEFAULT 'free'::text NOT NULL;
     ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS grade TEXT;
     ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS progress JSONB DEFAULT '{}'::jsonb;
+    
+    -- Teacher Specific
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS specialization TEXT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS years_experience INT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS bio TEXT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar TEXT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS grades_taught TEXT[];
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS permissions TEXT[];
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS job_title TEXT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ;
 EXCEPTION
     WHEN duplicate_column THEN RAISE NOTICE 'column already exists';
 END $$;
 
+-- 2.2 ADD CONSTRAINTS SAFELY
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'profiles_email_key') THEN
+        ALTER TABLE public.profiles ADD CONSTRAINT profiles_email_key UNIQUE (email);
+    END IF;
+EXCEPTION
+    WHEN others THEN RAISE NOTICE 'constraint might already exist';
+END $$;
+
+-- 2.3 CREATE INDEXES
 CREATE INDEX IF NOT EXISTS profiles_role_idx ON public.profiles (role);
 CREATE INDEX IF NOT EXISTS profiles_email_idx ON public.profiles (email);
 
+-- 2.4 FUNCTIONS & POLICIES
 CREATE OR REPLACE FUNCTION public.get_user_role(user_id UUID)
 RETURNS TEXT AS $$
 DECLARE
@@ -444,7 +458,7 @@ CREATE POLICY "Invoice manage" ON public.invoices FOR ALL USING (get_user_role(a
                                     <li>اذهب إلى لوحة تحكم <b>Supabase</b>.</li>
                                     <li>من القائمة الجانبية، اختر <b>SQL Editor</b>.</li>
                                     <li>الصق الكود واضغط على <b className="text-white">Run</b>.</li>
-                                    <li>سيتم إصلاح الجداول وإضافة الأعمدة المفقودة (مثل role) تلقائياً.</li>
+                                    <li>سيتم إصلاح الجداول وإضافة الأعمدة المفقودة (مثل email, role) تلقائياً.</li>
                                 </ol>
                             </div>
                         </div>

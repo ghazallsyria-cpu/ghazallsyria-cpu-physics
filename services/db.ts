@@ -1,4 +1,5 @@
 
+// ... existing imports ...
 import { supabase } from './supabase';
 import {
   User, Curriculum, Quiz, Question, StudentQuizAttempt,
@@ -703,11 +704,10 @@ class DBService {
   async getNotificationSettings() { return (await this.getSetting('notifications')) || {} as NotificationSettings; }
   async saveNotificationSettings(s: NotificationSettings) { await this.saveSetting('notifications', s); }
   
-  // Updated to provide a robust default
+  // Updated to provide a robust default by merging
   async getBrochureSettings() { 
-      const settings = await this.getSetting('brochure');
-      if (!settings || Object.keys(settings).length === 0) {
-          return {
+      const settings = await this.getSetting('brochure') || {};
+      const defaults: BrochureSettings = {
             heroTitle: 'الفيزياء <span class="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-300">الحديثة</span>',
             heroSubtitle: 'منصة تعليمية متطورة تدمج الذكاء الاصطناعي مع المنهج الكويتي.',
             section1Title: 'مميزات ذكية',
@@ -728,9 +728,9 @@ class DBService {
             ctaTitle: 'ابدأ الآن',
             ctaSubtitle: 'انضم للنخبة',
             ctaButtonText: 'تسجيل دخول'
-          } as BrochureSettings;
-      }
-      return settings;
+      };
+      // Merge defaults with fetched settings to ensure all fields exist
+      return { ...defaults, ...settings } as BrochureSettings;
   }
   async saveBrochureSettings(s: BrochureSettings) { await this.saveSetting('brochure', s); }
   

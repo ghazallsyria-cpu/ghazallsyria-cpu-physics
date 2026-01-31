@@ -137,11 +137,19 @@ const App: React.FC = () => {
                     userProfile = newProfile;
                 } catch (e: any) {
                     console.error("Failed to auto-create profile for OAuth user", e);
+                    
+                    const isBypassed = localStorage.getItem('ssc_schema_bypass') === 'true';
+                    
                     // Check for specific missing table error, ignore duplicate key error
-                    if (e.message?.includes("Could not find the table") || e.message?.includes("relation \"public.profiles\" does not exist")) {
+                    if (!isBypassed && (e.message?.includes("Could not find the table") || e.message?.includes("relation \"public.profiles\" does not exist"))) {
                         setSchemaError(true);
                         setIsAuthLoading(false);
                         return;
+                    }
+                    
+                    if (isBypassed) {
+                        // If bypassed, assume successful locally to allow rendering
+                        userProfile = newProfile;
                     }
                 }
             }
@@ -194,7 +202,11 @@ const App: React.FC = () => {
                         </button>
                         
                         <button 
-                            onClick={() => { setSchemaError(false); window.location.reload(); }} 
+                            onClick={() => { 
+                                localStorage.setItem('ssc_schema_bypass', 'true');
+                                setSchemaError(false); 
+                                window.location.reload(); 
+                            }} 
                             className="bg-green-500 text-white py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-green-600 transition-all flex items-center justify-center gap-2"
                         >
                             <PlayCircle size={18} /> تم الإصلاح - متابعة

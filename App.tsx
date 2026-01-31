@@ -5,7 +5,7 @@ import { User, AppBranding, MaintenanceSettings, ViewState } from './types';
 import { dbService } from './services/db';
 import { supabase } from './services/supabase';
 import ProtectedRoute, { AuthContext } from './components/ProtectedRoute';
-import { Bell, ArrowRight, Menu, RefreshCw, LayoutDashboard, ShieldAlert } from 'lucide-react';
+import { Bell, ArrowRight, Menu, RefreshCw, LayoutDashboard, ShieldAlert, Database } from 'lucide-react';
 
 // Core Components
 import Sidebar from './components/Sidebar';
@@ -95,6 +95,7 @@ const App: React.FC = () => {
     const [user, setUser] = useState<User | null>(null);
     const [isAuthLoading, setIsAuthLoading] = useState(true);
     const [branding] = useState<AppBranding>({ logoUrl: 'https://cdn-icons-png.flaticon.com/512/3063/3063206.png', appName: 'المركز السوري للعلوم' });
+    const [schemaError, setSchemaError] = useState(false);
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -135,8 +136,14 @@ const App: React.FC = () => {
                 try {
                     await dbService.saveUser(newProfile);
                     userProfile = newProfile;
-                } catch (e) {
+                } catch (e: any) {
                     console.error("Failed to auto-create profile for OAuth user", e);
+                    // Check for missing table error
+                    if (e.message?.includes("Could not find the table") || e.message?.includes("relation \"public.profiles\" does not exist")) {
+                        setSchemaError(true);
+                        setIsAuthLoading(false);
+                        return;
+                    }
                 }
             }
 
@@ -161,6 +168,31 @@ const App: React.FC = () => {
         setUser(null);
         navigate('/login');
     };
+
+    if (schemaError) {
+        return (
+            <div className="min-h-screen bg-[#0A2540] flex flex-col items-center justify-center p-6 text-right font-['Tajawal']" dir="rtl">
+                <div className="max-w-4xl w-full animate-fadeIn">
+                    <div className="bg-amber-500/10 border border-amber-500/20 p-6 rounded-[30px] mb-8 flex items-center gap-4 text-amber-400">
+                        <Database size={32} />
+                        <div>
+                            <h2 className="text-xl font-black">قاعدة البيانات غير مهيأة</h2>
+                            <p className="text-sm">لم يتم العثور على الجداول المطلوبة في Supabase. يرجى تشغيل كود التهيئة أدناه.</p>
+                        </div>
+                    </div>
+                    <Suspense fallback={<div className="text-center text-white">جاري تحميل أداة التهيئة...</div>}>
+                        <FirestoreRulesFixer />
+                    </Suspense>
+                    <button 
+                        onClick={() => window.location.reload()} 
+                        className="mt-8 w-full bg-white text-black py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-gray-200 transition-all flex items-center justify-center gap-2"
+                    >
+                        <RefreshCw size={18} /> تحديث الصفحة بعد تشغيل الكود
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <AuthContext.Provider value={{ user, isLoading: isAuthLoading }}>

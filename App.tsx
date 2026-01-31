@@ -5,7 +5,7 @@ import { User, AppBranding, MaintenanceSettings, ViewState } from './types';
 import { dbService } from './services/db';
 import { supabase } from './services/supabase';
 import ProtectedRoute, { AuthContext } from './components/ProtectedRoute';
-import { Bell, ArrowRight, Menu, RefreshCw, LayoutDashboard, ShieldAlert, Database } from 'lucide-react';
+import { Bell, ArrowRight, Menu, RefreshCw, LayoutDashboard, ShieldAlert, Database, LogOut, PlayCircle } from 'lucide-react';
 
 // Core Components
 import Sidebar from './components/Sidebar';
@@ -116,7 +116,6 @@ const App: React.FC = () => {
             let userProfile = await dbService.getUser(session.user.id);
 
             // إصلاح مشكلة Google Auth: إذا تم الدخول ولكن لم يتم إنشاء الملف الشخصي بعد
-            // نقوم بإنشائه يدوياً من التطبيق لضمان العمل
             if (!userProfile) {
                 const { user } = session;
                 const newProfile: User = {
@@ -138,7 +137,7 @@ const App: React.FC = () => {
                     userProfile = newProfile;
                 } catch (e: any) {
                     console.error("Failed to auto-create profile for OAuth user", e);
-                    // Check for missing table error
+                    // Check for specific missing table error, ignore duplicate key error
                     if (e.message?.includes("Could not find the table") || e.message?.includes("relation \"public.profiles\" does not exist")) {
                         setSchemaError(true);
                         setIsAuthLoading(false);
@@ -166,6 +165,7 @@ const App: React.FC = () => {
     const handleLogout = async () => {
         await supabase.auth.signOut();
         setUser(null);
+        setSchemaError(false); // Reset error on logout
         navigate('/login');
     };
 
@@ -176,19 +176,37 @@ const App: React.FC = () => {
                     <div className="bg-amber-500/10 border border-amber-500/20 p-6 rounded-[30px] mb-8 flex items-center gap-4 text-amber-400">
                         <Database size={32} />
                         <div>
-                            <h2 className="text-xl font-black">قاعدة البيانات غير مهيأة</h2>
-                            <p className="text-sm">لم يتم العثور على الجداول المطلوبة في Supabase. يرجى تشغيل كود التهيئة أدناه.</p>
+                            <h2 className="text-xl font-black">إعداد قاعدة البيانات</h2>
+                            <p className="text-sm">إذا كنت قد قمت بتشغيل كود SQL بالفعل، اضغط على "تحديث" أو "تجاهل".</p>
                         </div>
                     </div>
+                    
                     <Suspense fallback={<div className="text-center text-white">جاري تحميل أداة التهيئة...</div>}>
                         <FirestoreRulesFixer />
                     </Suspense>
-                    <button 
-                        onClick={() => window.location.reload()} 
-                        className="mt-8 w-full bg-white text-black py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-gray-200 transition-all flex items-center justify-center gap-2"
-                    >
-                        <RefreshCw size={18} /> تحديث الصفحة بعد تشغيل الكود
-                    </button>
+                    
+                    <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <button 
+                            onClick={() => window.location.reload()} 
+                            className="bg-white text-black py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-gray-200 transition-all flex items-center justify-center gap-2"
+                        >
+                            <RefreshCw size={18} /> تحديث الصفحة
+                        </button>
+                        
+                        <button 
+                            onClick={() => { setSchemaError(false); window.location.reload(); }} 
+                            className="bg-green-500 text-white py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-green-600 transition-all flex items-center justify-center gap-2"
+                        >
+                            <PlayCircle size={18} /> تم الإصلاح - متابعة
+                        </button>
+
+                        <button 
+                            onClick={handleLogout} 
+                            className="bg-red-500/20 border border-red-500/30 text-red-400 py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-red-500/30 transition-all flex items-center justify-center gap-2"
+                        >
+                            <LogOut size={18} /> تسجيل الخروج
+                        </button>
+                    </div>
                 </div>
             </div>
         );

@@ -5,44 +5,72 @@ import { Database, Code, CheckCircle2, Copy, Info, ExternalLink } from 'lucide-r
 const DatabaseSchemaSetup: React.FC = () => {
     const [copied, setCopied] = useState(false);
 
-    const supabaseSQL = `-- 1. AGGRESSIVE CLEANUP & PREPARATION
--- We drop dependent tables to allow changing ID types on parent tables
+    const supabaseSQL = `-- 1. PRE-FLIGHT CLEANUP (Stop triggers & Drop dependents)
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP FUNCTION IF EXISTS public.handle_new_user();
+
+-- Drop dependent tables to allow structural changes on parents
 DROP TABLE IF EXISTS public.quiz_questions CASCADE;
 DROP TABLE IF EXISTS public.student_quiz_attempts CASCADE;
 DROP TABLE IF EXISTS public.student_lesson_progress CASCADE;
 DROP TABLE IF EXISTS public.student_interaction_events CASCADE;
 DROP TABLE IF EXISTS public.lesson_scenes CASCADE;
 
--- 2. FIX PROFILES TABLE (Must match auth.users uuid)
+-- 2. ENSURE PROFILES TABLE EXISTS
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id UUID NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  PRIMARY KEY (id)
+);
+
+-- 3. ADD MISSING COLUMNS FIRST (Fixes "column does not exist" error)
 DO $$
 BEGIN
-    -- Only try to convert if it exists
-    IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'profiles') THEN
-        -- Remove non-UUID IDs (garbage data that can't be converted)
-        DELETE FROM public.profiles WHERE id::text !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS email TEXT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS name TEXT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'student'::text NOT NULL;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS grade TEXT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS subscription_status TEXT DEFAULT 'free'::text NOT NULL;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS photo_url TEXT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS phone TEXT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS gender TEXT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS bio TEXT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS specialization TEXT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS years_experience INT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS grades_taught TEXT[];
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS permissions TEXT[];
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS job_title TEXT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS activity_log JSONB;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS progress JSONB DEFAULT '{}'::jsonb;
+EXCEPTION
+    WHEN others THEN RAISE NOTICE 'Column addition skipped or failed';
+END $$;
+
+-- 4. FIX PROFILES ID TYPE (Convert TEXT to UUID if needed)
+DO $$
+BEGIN
+    -- Check if ID is text, if so, convert it
+    IF EXISTS (
+        SELECT 1 
+        FROM information_schema.columns 
+        WHERE table_schema = 'public' 
+          AND table_name = 'profiles' 
+          AND column_name = 'id' 
+          AND data_type = 'text'
+    ) THEN
+        -- Delete invalid IDs that aren't UUIDs (cleanup garbage)
+        DELETE FROM public.profiles WHERE id !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
         
-        -- Convert id to UUID
+        -- Convert column type
         ALTER TABLE public.profiles ALTER COLUMN id TYPE UUID USING id::uuid;
         
-        -- Ensure columns exist
-        ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS name TEXT;
-        ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS email TEXT;
-        ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'student'::text NOT NULL;
-        ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS grade TEXT;
-        ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS subscription_status TEXT DEFAULT 'free'::text NOT NULL;
-    ELSE
-        -- Create if missing
-        CREATE TABLE public.profiles (
-            id UUID NOT NULL REFERENCES auth.users ON DELETE CASCADE,
-            name TEXT,
-            email TEXT,
-            role TEXT DEFAULT 'student',
-            PRIMARY KEY (id)
-        );
+        -- Restore default
+        ALTER TABLE public.profiles ALTER COLUMN id DROP DEFAULT;
     END IF;
 END $$;
 
--- 3. FIX QUIZZES (Convert TEXT ID to UUID)
+-- 5. RECREATE QUIZZES (Ensure UUID)
 DO $$
 BEGIN
     IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'quizzes') THEN
@@ -55,15 +83,18 @@ BEGIN
             title TEXT NOT NULL
         );
     END IF;
-    -- Add missing columns
+    -- Add columns
     ALTER TABLE public.quizzes ADD COLUMN IF NOT EXISTS description TEXT;
     ALTER TABLE public.quizzes ADD COLUMN IF NOT EXISTS grade TEXT;
     ALTER TABLE public.quizzes ADD COLUMN IF NOT EXISTS subject TEXT;
+    ALTER TABLE public.quizzes ADD COLUMN IF NOT EXISTS category TEXT;
+    ALTER TABLE public.quizzes ADD COLUMN IF NOT EXISTS duration INT;
     ALTER TABLE public.quizzes ADD COLUMN IF NOT EXISTS is_premium BOOLEAN DEFAULT false;
     ALTER TABLE public.quizzes ADD COLUMN IF NOT EXISTS max_attempts INT;
+    ALTER TABLE public.quizzes ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 END $$;
 
--- 4. FIX QUESTIONS (Convert TEXT ID to UUID)
+-- 6. RECREATE QUESTIONS (Ensure UUID)
 DO $$
 BEGIN
     IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'questions') THEN
@@ -76,15 +107,19 @@ BEGIN
             text TEXT NOT NULL
         );
     END IF;
-    -- Add missing columns
+    -- Add columns
     ALTER TABLE public.questions ADD COLUMN IF NOT EXISTS type TEXT;
     ALTER TABLE public.questions ADD COLUMN IF NOT EXISTS choices JSONB;
     ALTER TABLE public.questions ADD COLUMN IF NOT EXISTS correct_choice_id TEXT;
     ALTER TABLE public.questions ADD COLUMN IF NOT EXISTS score INT;
+    ALTER TABLE public.questions ADD COLUMN IF NOT EXISTS unit_id UUID;
+    ALTER TABLE public.questions ADD COLUMN IF NOT EXISTS difficulty TEXT;
     ALTER TABLE public.questions ADD COLUMN IF NOT EXISTS solution TEXT;
+    ALTER TABLE public.questions ADD COLUMN IF NOT EXISTS image_url TEXT;
+    ALTER TABLE public.questions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 END $$;
 
--- 5. RECREATE DEPENDENT TABLES (With UUID FKs)
+-- 7. RECREATE DEPENDENT TABLES (With correct FK types)
 CREATE TABLE IF NOT EXISTS public.quiz_questions (
   quiz_id UUID NOT NULL REFERENCES public.quizzes(id) ON DELETE CASCADE,
   question_id UUID NOT NULL REFERENCES public.questions(id) ON DELETE CASCADE,
@@ -104,7 +139,7 @@ CREATE TABLE IF NOT EXISTS public.student_quiz_attempts (
   completed_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 6. CONTENT TABLES (Curriculum, Units, Lessons)
+-- 8. CONTENT TABLES (Curriculum, Units, Lessons)
 -- Ensure IDs are UUID
 DO $$ BEGIN
     -- Curriculums
@@ -118,6 +153,9 @@ DO $$ BEGIN
     ALTER TABLE public.curriculums ADD COLUMN IF NOT EXISTS grade TEXT;
     ALTER TABLE public.curriculums ADD COLUMN IF NOT EXISTS subject TEXT;
     ALTER TABLE public.curriculums ADD COLUMN IF NOT EXISTS title TEXT;
+    ALTER TABLE public.curriculums ADD COLUMN IF NOT EXISTS description TEXT;
+    ALTER TABLE public.curriculums ADD COLUMN IF NOT EXISTS icon TEXT;
+    ALTER TABLE public.curriculums ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 
     -- Units
     IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'units') THEN
@@ -130,7 +168,9 @@ DO $$ BEGIN
         CREATE TABLE public.units (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), curriculum_id UUID REFERENCES public.curriculums(id) ON DELETE CASCADE);
     END IF;
     ALTER TABLE public.units ADD COLUMN IF NOT EXISTS title TEXT;
+    ALTER TABLE public.units ADD COLUMN IF NOT EXISTS description TEXT;
     ALTER TABLE public.units ADD COLUMN IF NOT EXISTS "order" INT DEFAULT 0;
+    ALTER TABLE public.units ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 
     -- Lessons
     IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'lessons') THEN
@@ -144,13 +184,16 @@ DO $$ BEGIN
     END IF;
     ALTER TABLE public.lessons ADD COLUMN IF NOT EXISTS title TEXT;
     ALTER TABLE public.lessons ADD COLUMN IF NOT EXISTS type TEXT;
+    ALTER TABLE public.lessons ADD COLUMN IF NOT EXISTS duration TEXT;
     ALTER TABLE public.lessons ADD COLUMN IF NOT EXISTS content JSONB;
     ALTER TABLE public.lessons ADD COLUMN IF NOT EXISTS template_type TEXT DEFAULT 'STANDARD';
-    ALTER TABLE public.lessons ADD COLUMN IF NOT EXISTS path_root_scene_id UUID;
+    ALTER TABLE public.lessons ADD COLUMN IF NOT EXISTS universal_config JSONB;
     ALTER TABLE public.lessons ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN DEFAULT false;
+    ALTER TABLE public.lessons ADD COLUMN IF NOT EXISTS path_root_scene_id UUID;
+    ALTER TABLE public.lessons ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 END $$;
 
--- 7. INTERACTIVE & ANALYTICS TABLES
+-- 9. INTERACTIVE & ANALYTICS TABLES
 CREATE TABLE IF NOT EXISTS public.lesson_scenes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   lesson_id UUID NOT NULL REFERENCES public.lessons(id) ON DELETE CASCADE,
@@ -167,6 +210,7 @@ CREATE TABLE IF NOT EXISTS public.student_lesson_progress (
   lesson_id UUID NOT NULL REFERENCES public.lessons(id) ON DELETE CASCADE,
   current_scene_id UUID NOT NULL REFERENCES public.lesson_scenes(id) ON DELETE CASCADE,
   answers JSONB,
+  uploaded_files JSONB,
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(student_id, lesson_id)
 );
@@ -182,18 +226,7 @@ CREATE TABLE IF NOT EXISTS public.student_interaction_events (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 8. RESTORE POLICIES & HELPER FUNCTION
-CREATE OR REPLACE FUNCTION public.get_user_role(user_id UUID)
-RETURNS TEXT AS $$
-DECLARE
-  user_role TEXT;
-BEGIN
-  SELECT role INTO user_role FROM public.profiles WHERE id = user_id;
-  RETURN user_role;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Re-enable RLS on all tables
+-- 10. RE-APPLY POLICIES (Idempotent)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.quizzes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.questions ENABLE ROW LEVEL SECURITY;
@@ -206,7 +239,18 @@ ALTER TABLE public.lesson_scenes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.student_lesson_progress ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.student_interaction_events ENABLE ROW LEVEL SECURITY;
 
--- Apply basic read policies
+-- Helper
+CREATE OR REPLACE FUNCTION public.get_user_role(user_id UUID)
+RETURNS TEXT AS $$
+DECLARE
+  user_role TEXT;
+BEGIN
+  SELECT role INTO user_role FROM public.profiles WHERE id = user_id;
+  RETURN user_role;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Drop old policies to prevent conflicts
 DROP POLICY IF EXISTS "Public profiles are viewable by authenticated users." ON public.profiles;
 CREATE POLICY "Public profiles are viewable by authenticated users." ON public.profiles FOR SELECT USING (auth.role() = 'authenticated');
 
@@ -222,7 +266,7 @@ CREATE POLICY "Attempts insert" ON public.student_quiz_attempts FOR INSERT WITH 
 DROP POLICY IF EXISTS "Attempts update" ON public.student_quiz_attempts;
 CREATE POLICY "Attempts update" ON public.student_quiz_attempts FOR UPDATE USING (get_user_role(auth.uid()) IN ('admin', 'teacher'));
 
--- 9. USER TRIGGER
+-- 11. USER TRIGGER
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -270,7 +314,7 @@ CREATE TRIGGER on_auth_user_created
                                     <li>اذهب إلى لوحة تحكم <b>Supabase</b>.</li>
                                     <li>من القائمة الجانبية، اختر <b>SQL Editor</b>.</li>
                                     <li>الصق الكود واضغط على <b className="text-white">Run</b>.</li>
-                                    <li>سيتم حل مشكلة توافق الأنواع (UUID/TEXT) تلقائياً.</li>
+                                    <li>سيتم حل مشكلة توافق الأنواع (UUID/TEXT) وإضافة الأعمدة المفقودة تلقائياً.</li>
                                 </ol>
                             </div>
                         </div>

@@ -111,8 +111,38 @@ const App: React.FC = () => {
 
     const handleSession = async (session: any) => {
         if (session?.user) {
+            // محاولة جلب ملف المستخدم
+            let userProfile = await dbService.getUser(session.user.id);
+
+            // إصلاح مشكلة Google Auth: إذا تم الدخول ولكن لم يتم إنشاء الملف الشخصي بعد
+            // نقوم بإنشائه يدوياً من التطبيق لضمان العمل
+            if (!userProfile) {
+                const { user } = session;
+                const newProfile: User = {
+                    uid: user.id,
+                    email: user.email!,
+                    name: user.user_metadata.full_name || user.user_metadata.name || 'مستخدم جديد',
+                    photoURL: user.user_metadata.avatar_url || user.user_metadata.picture,
+                    phone: user.user_metadata.phone,
+                    role: 'student',
+                    grade: '12', 
+                    subscription: 'free',
+                    status: 'active',
+                    createdAt: new Date().toISOString(),
+                    progress: { completedLessonIds: [], points: 0, achievements: [] }
+                };
+                
+                try {
+                    await dbService.saveUser(newProfile);
+                    userProfile = newProfile;
+                } catch (e) {
+                    console.error("Failed to auto-create profile for OAuth user", e);
+                }
+            }
+
+            // الاشتراك في التحديثات
             dbService.subscribeToUser(session.user.id, (updatedUser) => {
-                setUser(updatedUser || null);
+                setUser(updatedUser || userProfile);
                 setIsAuthLoading(false);
             });
         } else {

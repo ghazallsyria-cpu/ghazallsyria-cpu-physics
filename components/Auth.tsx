@@ -93,13 +93,17 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onBack }) => {
       const { data, error } = await supabase.auth.signInWithOAuth({
           provider: 'google',
           options: {
-              redirectTo: window.location.origin
+              redirectTo: window.location.origin,
+              queryParams: {
+                access_type: 'offline',
+                prompt: 'consent',
+              },
           }
       });
       if (error) throw error;
     } catch (error: any) {
       console.error(error);
-      setMessage({ text: 'فشل تسجيل الدخول عبر جوجل.', type: 'error' });
+      setMessage({ text: 'فشل بدء تسجيل الدخول عبر جوجل. يرجى المحاولة مرة أخرى.', type: 'error' });
       setIsLoading(false);
     }
   };

@@ -3,7 +3,7 @@ import React, { useState, useRef } from 'react';
 import { User } from '../types';
 import { dbService } from '../services/db';
 import { supabase } from '../services/supabase';
-import { Phone, User as UserIcon, ShieldCheck } from 'lucide-react';
+import { Phone, User as UserIcon, ShieldCheck, AlertCircle } from 'lucide-react';
 
 interface AuthProps {
   onLogin: (user: User) => void;
@@ -45,7 +45,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onBack }) => {
         });
 
         if (authError) throw authError;
-        if (!authData.user) throw new Error("No user returned");
+        if (!authData.user) throw new Error("لم يتم إرجاع بيانات المستخدم.");
 
         const newUser: User = {
             uid: authData.user.id, 
@@ -81,7 +81,9 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onBack }) => {
       
     } catch (error: any) {
         console.error(error);
-        setMessage({ text: error.message || "خطأ في البريد أو كلمة المرور.", type: 'error' });
+        let errorMsg = error.message;
+        if (errorMsg === "Invalid login credentials") errorMsg = "البريد الإلكتروني أو كلمة المرور غير صحيحة.";
+        setMessage({ text: errorMsg, type: 'error' });
     } finally {
         setIsLoading(false);
     }
@@ -89,21 +91,32 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onBack }) => {
 
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
+    setMessage({ text: '', type: '' });
     try {
+      // التأكد من عنوان التوجيه، يجب أن يكون مطابقاً لما هو مسموح به في إعدادات Supabase
+      const redirectUrl = window.location.origin; 
+      
+      console.log("Starting Google Auth with redirect to:", redirectUrl);
+
       const { data, error } = await supabase.auth.signInWithOAuth({
           provider: 'google',
           options: {
-              redirectTo: window.location.origin,
+              redirectTo: redirectUrl,
               queryParams: {
                 access_type: 'offline',
                 prompt: 'consent',
               },
           }
       });
+      
       if (error) throw error;
+      
     } catch (error: any) {
-      console.error(error);
-      setMessage({ text: 'فشل بدء تسجيل الدخول عبر جوجل. يرجى المحاولة مرة أخرى.', type: 'error' });
+      console.error("Google Auth Error:", error);
+      setMessage({ 
+          text: `فشل الاتصال بجوجل: ${error.message || 'يرجى التحقق من إعدادات Supabase Google Provider.'}`, 
+          type: 'error' 
+      });
       setIsLoading(false);
     }
   };
@@ -116,14 +129,20 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onBack }) => {
                 <h2 className="text-3xl font-black text-white mb-2">{isResetMode ? 'استعادة كلمة المرور' : isRegistering ? 'إنشاء حساب جديد' : 'تسجيل الدخول'}</h2>
                 <p className="text-amber-400/50 text-sm font-bold uppercase tracking-widest">المركز السوري للعلوم</p>
             </div>
-            {message.text && (<div className={`mb-6 p-4 rounded-2xl text-xs font-bold text-center ${message.type === 'success' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>{message.text}</div>)}
+            
+            {message.text && (
+                <div className={`mb-6 p-4 rounded-2xl text-xs font-bold flex items-center gap-3 ${message.type === 'success' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                    {message.type === 'error' && <AlertCircle size={16} />}
+                    {message.text}
+                </div>
+            )}
             
             {isResetMode ? (
               <form onSubmit={async (e) => { 
                   e.preventDefault(); 
                   const { error } = await supabase.auth.resetPasswordForEmail(email);
-                  if (!error) setMessage({text: 'تم إرسال الرابط', type: 'success'});
-                  else setMessage({text: 'فشل الإرسال', type: 'error'}); 
+                  if (!error) setMessage({text: 'تم إرسال رابط الاستعادة إلى بريدك الإلكتروني.', type: 'success'});
+                  else setMessage({text: error.message, type: 'error'}); 
               }} className="space-y-4">
                 <div>
                     <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">البريد الإلكتروني</label>
@@ -191,12 +210,13 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onBack }) => {
                   <div className="flex-grow border-t border-white/10"></div>
               </div>
 
-              <button type="button" onClick={handleGoogleSignIn} disabled={isLoading} className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-white font-bold hover:bg-white hover:text-black transition-all flex items-center justify-center gap-3">
-                <img src="https://www.google.com/favicon.ico" alt="G" className="w-4 h-4" /> المتابعة باستخدام جوجل
+              <button type="button" onClick={handleGoogleSignIn} disabled={isLoading} className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-white font-bold hover:bg-white hover:text-black transition-all flex items-center justify-center gap-3 group">
+                {isLoading ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <img src="https://www.google.com/favicon.ico" alt="G" className="w-4 h-4 group-hover:scale-110 transition-transform" />}
+                المتابعة باستخدام جوجل
               </button>
 
               <div className="pt-6 border-t border-white/5 text-center mt-6"> 
-                <button type="button" onClick={() => setIsRegistering(!isRegistering)} className="text-xs font-bold text-white">{isRegistering ? 'لديك حساب بالفعل؟ تسجيل الدخول' : 'ليس لديك حساب؟ إنشاء حساب جديد'}</button> 
+                <button type="button" onClick={() => setIsRegistering(!isRegistering)} className="text-xs font-bold text-white hover:text-amber-400 transition-colors">{isRegistering ? 'لديك حساب بالفعل؟ تسجيل الدخول' : 'ليس لديك حساب؟ إنشاء حساب جديد'}</button> 
               </div>
             </>
             )}

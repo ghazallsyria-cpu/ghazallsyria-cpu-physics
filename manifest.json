@@ -1,0 +1,25 @@
+{
+  "name": "فيزياء الكويت",
+  "short_name": "فيزياء الكويت",
+  "description": "منصة تعليم الفيزياء للمرحلة الثانوية - دولة الكويت. دروس تفاعلية، بنوك أسئلة، معلمين خبراء، مناهج مطورة.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0A2540",
+  "theme_color": "#0A2540",
+  "orientation": "portrait",
+  "categories": ["education", "science"],
+  "icons": [
+    {
+      "src": "https://i.ibb.co/yBGp3sN/ssc-logo-final.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://i.ibb.co/yBGp3sN/ssc-logo-final.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

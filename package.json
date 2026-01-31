@@ -1,0 +1,39 @@
+
+{
+  "name": "syrian-science",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@google/genai": "^0.14.0",
+    "@supabase/supabase-js": "2.44.4",
+    "@zoomus/websdk": "^2.11.0",
+    "animejs": "^3.2.2",
+    "chart.js": "^4.4.1",
+    "firebase": "^10.8.0",
+    "html2canvas": "^1.4.1",
+    "jszip": "^3.10.1",
+    "katex": "^0.16.10",
+    "lucide-react": "^0.344.0",
+    "react": "^18.2.0",
+    "react-chartjs-2": "^5.2.0",
+    "react-dom": "^18.2.0",
+    "react-qr-code": "^2.0.15",
+    "react-router": "^6.22.3",
+    "react-router-dom": "^6.22.3"
+  },
+  "devDependencies": {
+    "@types/animejs": "^3.1.12",
+    "@types/katex": "^0.16.7",
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.2.2",
+    "vite": "^5.4.0"
+  }
+}

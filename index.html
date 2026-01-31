@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>فيزياء الكويت | منصة تعليم الفيزياء للمرحلة الثانوية</title>
+    
+    <meta name="theme-color" content="#0A2540">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/3063/3063206.png" type="image/png">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@200;300;400;500;700;800;900&display=swap" rel="stylesheet">
+    
+    <style>
+        :root { --bg-deep: #0A2540; --primary: #D4AF37; --text-light: #e2e8f0; }
+        body { background-color: var(--bg-deep); color: var(--text-light); font-family: 'Tajawal', sans-serif; margin: 0; padding: 0; overflow-x: hidden; }
+        .glass-panel { background: rgba(10, 37, 64, 0.6); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+        .bg-geometric-pattern { background-image: radial-gradient(circle at top left, rgba(0, 210, 255, 0.1) 0%, transparent 30%), radial-gradient(circle at bottom right, rgba(251, 191, 36, 0.1) 0%, transparent 40%); }
+        
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fadeIn { animation: fadeInUp 0.6s ease-out forwards; }
+        
+        @keyframes slideUp { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-slideUp { animation: slideUp 0.8s ease-out forwards; }
+
+        @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-15px); } 100% { transform: translateY(0px); } }
+        .animate-float { animation: float 5s ease-in-out infinite; }
+
+        .text-glow { text-shadow: 0 0 20px rgba(56, 189, 248, 0.7); }
+        .text-glow-gold { text-shadow: 0 0 20px rgba(251, 191, 36, 0.7); }
+        .glow-gold { box-shadow: 0 0 30px rgba(251, 191, 36, 0.5); }
+        .glow-teal { box-shadow: 0 0 30px rgba(0, 210, 255, 0.5); }
+        
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+
+    <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "react-router-dom": "https://esm.sh/react-router-dom@6.22.3",
+    "react-router": "https://esm.sh/react-router@6.22.3",
+    "lucide-react": "https://esm.sh/lucide-react@0.344.0",
+    "animejs": "https://esm.sh/animejs@3.2.2",
+    "@google/genai": "https://esm.sh/@google/genai@0.14.0",
+    "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
+    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js",
+    "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
+    "firebase/storage": "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js",
+    "firebase/compat/app": "https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js",
+    "firebase/compat/auth": "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js",
+    "firebase/compat/firestore": "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js",
+    "firebase/compat/storage": "https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js",
+    "katex": "https://esm.sh/katex@0.16.10",
+    "react-qr-code": "https://esm.sh/react-qr-code@2.0.12",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.7",
+    "jszip": "https://esm.sh/jszip@3.10.1",
+    "chart.js": "https://esm.sh/chart.js@4.4.1",
+    "react-chartjs-2": "https://esm.sh/react-chartjs-2@5.2.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "firebase/": "https://esm.sh/firebase@^12.8.0/",
+    "vite": "https://esm.sh/vite@^7.3.1",
+    "katex/": "https://esm.sh/katex@^0.16.28/"
+  }
+}
+</script>
+</head>
+<body>
+    <div id="root"></div>
+    <script>
+      // Global Error Handler to catch crash before React mounts
+      window.onerror = function(message, source, lineno, colno, error) {
+        const root = document.getElementById('root');
+        if (root && root.innerHTML.trim() === '') {
+           root.innerHTML = \`
+             <div style="color: white; font-family: monospace; padding: 20px; direction: ltr; text-align: left;">
+               <h1 style="color: red;">Application Critical Error</h1>
+               <p>The application failed to start.</p>
+               <pre style="background: #333; padding: 10px; border-radius: 5px; overflow: auto;">\${message}\\nat \${source}:\${lineno}:\${colno}</pre>
+               <button onclick="window.location.reload()" style="margin-top: 20px; padding: 10px 20px; font-weight: bold; cursor: pointer;">Reload Page</button>
+             </div>
+           \`;
+        }
+      };
+    </script>
+    <script type="module" src="./index.tsx"></script>
+</body>
+</html>

@@ -5,36 +5,62 @@ import { Database, Code, CheckCircle2, Copy, Info, ExternalLink } from 'lucide-r
 const DatabaseSchemaSetup: React.FC = () => {
     const [copied, setCopied] = useState(false);
 
-    const supabaseSQL = `-- 1. PREPARATION & HELPERS
+    const supabaseSQL = `-- 1. PREPARATION & CLEANUP (Fix Type Mismatches)
 ALTER DEFAULT PRIVILEGES REVOKE ALL ON TABLES FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES REVOKE ALL ON FUNCTIONS FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES REVOKE ALL ON SEQUENCES FROM PUBLIC;
 
--- 2. PROFILES TABLE (BASE CREATION)
+-- Drop problematic join tables first to allow altering parents
+DROP TABLE IF EXISTS public.quiz_questions;
+DROP TABLE IF EXISTS public.student_quiz_attempts;
+
+-- 2. FIX TABLE ID TYPES (Convert TEXT to UUID if necessary)
+DO $$
+DECLARE
+    col_type text;
+BEGIN
+    -- CHECK QUIZZES
+    SELECT data_type INTO col_type FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'quizzes' AND column_name = 'id';
+    
+    IF col_type = 'text' THEN
+        -- Remove invalid IDs that cannot be cast to UUID
+        DELETE FROM public.quizzes WHERE id !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+        -- Convert to UUID
+        ALTER TABLE public.quizzes ALTER COLUMN id TYPE UUID USING id::uuid;
+        ALTER TABLE public.quizzes ALTER COLUMN id SET DEFAULT gen_random_uuid();
+    END IF;
+
+    -- CHECK QUESTIONS
+    SELECT data_type INTO col_type FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'questions' AND column_name = 'id';
+    
+    IF col_type = 'text' THEN
+        DELETE FROM public.questions WHERE id !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+        ALTER TABLE public.questions ALTER COLUMN id TYPE UUID USING id::uuid;
+        ALTER TABLE public.questions ALTER COLUMN id SET DEFAULT gen_random_uuid();
+    END IF;
+END $$;
+
+-- 3. PROFILES TABLE
 CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID NOT NULL REFERENCES auth.users ON DELETE CASCADE,
   PRIMARY KEY (id)
 );
 
--- 2.1 ENSURE ALL COLUMNS EXIST (Safe Migration)
--- This block adds columns if they are missing, preventing "column does not exist" errors
+-- Ensure Columns
 DO $$
 BEGIN
-    -- Basic Identity
     ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS name TEXT;
     ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS email TEXT;
     ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS phone TEXT;
     ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS gender TEXT;
     ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS photo_url TEXT;
     ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
-    
-    -- App Logic
     ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'student'::text NOT NULL;
     ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS subscription_status TEXT DEFAULT 'free'::text NOT NULL;
     ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS grade TEXT;
     ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS progress JSONB DEFAULT '{}'::jsonb;
-    
-    -- Teacher Specific
     ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS specialization TEXT;
     ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS years_experience INT;
     ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS bio TEXT;
@@ -43,60 +69,58 @@ BEGIN
     ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS permissions TEXT[];
     ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS job_title TEXT;
     ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ;
-EXCEPTION
-    WHEN duplicate_column THEN RAISE NOTICE 'column already exists';
-END $$;
+EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 
--- 2.2 ADD CONSTRAINTS SAFELY
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'profiles_email_key') THEN
-        ALTER TABLE public.profiles ADD CONSTRAINT profiles_email_key UNIQUE (email);
-    END IF;
-EXCEPTION
-    WHEN others THEN RAISE NOTICE 'constraint might already exist';
-END $$;
+-- 4. RECREATE QUIZZES (If not exists)
+CREATE TABLE IF NOT EXISTS public.quizzes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL,
+  description TEXT,
+  grade TEXT,
+  subject TEXT,
+  category TEXT,
+  duration INT,
+  is_premium BOOLEAN DEFAULT false,
+  max_attempts INT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
--- 2.3 CREATE INDEXES
-CREATE INDEX IF NOT EXISTS profiles_role_idx ON public.profiles (role);
-CREATE INDEX IF NOT EXISTS profiles_email_idx ON public.profiles (email);
+-- 5. RECREATE QUESTIONS (If not exists)
+CREATE TABLE IF NOT EXISTS public.questions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  text TEXT NOT NULL,
+  type TEXT,
+  choices JSONB,
+  correct_choice_id TEXT,
+  score INT,
+  unit_id UUID, -- Optional link to unit
+  difficulty TEXT,
+  solution TEXT,
+  image_url TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
--- 2.4 FUNCTIONS & POLICIES
-CREATE OR REPLACE FUNCTION public.get_user_role(user_id UUID)
-RETURNS TEXT AS $$
-DECLARE
-  user_role TEXT;
-BEGIN
-  SELECT role INTO user_role FROM public.profiles WHERE id = user_id;
-  RETURN user_role;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- 6. RECREATE JOIN TABLES (Now types are guaranteed to match)
+CREATE TABLE IF NOT EXISTS public.quiz_questions (
+  quiz_id UUID NOT NULL REFERENCES public.quizzes(id) ON DELETE CASCADE,
+  question_id UUID NOT NULL REFERENCES public.questions(id) ON DELETE CASCADE,
+  PRIMARY KEY (quiz_id, question_id)
+);
 
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Public profiles are viewable by authenticated users." ON public.profiles;
-CREATE POLICY "Public profiles are viewable by authenticated users." ON public.profiles FOR SELECT USING (auth.role() = 'authenticated');
-DROP POLICY IF EXISTS "Users can insert their own profile." ON public.profiles;
-CREATE POLICY "Users can insert their own profile." ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
-DROP POLICY IF EXISTS "Users can update their own profile." ON public.profiles;
-CREATE POLICY "Users can update their own profile." ON public.profiles FOR UPDATE USING (auth.uid() = id);
-DROP POLICY IF EXISTS "Admins can manage all profiles." ON public.profiles;
-CREATE POLICY "Admins can manage all profiles." ON public.profiles FOR ALL USING (get_user_role(auth.uid()) = 'admin');
+CREATE TABLE IF NOT EXISTS public.student_quiz_attempts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  student_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  quiz_id UUID NOT NULL REFERENCES public.quizzes(id) ON DELETE CASCADE,
+  score INT,
+  max_score INT,
+  answers JSONB,
+  time_spent INT,
+  status TEXT DEFAULT 'completed'::text,
+  manual_grades JSONB,
+  completed_at TIMESTAMPTZ DEFAULT NOW()
+);
 
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO public.profiles (id, name, email, photo_url)
-  VALUES (new.id, new.raw_user_meta_data->>'full_name', new.email, new.raw_user_meta_data->>'avatar_url');
-  RETURN new;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
-
--- 3. EDUCATIONAL CONTENT
+-- 7. OTHER TABLES (Curriculum, Units, Lessons)
 CREATE TABLE IF NOT EXISTS public.curriculums (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   grade TEXT NOT NULL,
@@ -130,91 +154,39 @@ CREATE TABLE IF NOT EXISTS public.lessons (
   path_root_scene_id UUID
 );
 
-ALTER TABLE public.curriculums ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.units ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.lessons ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Content read access" ON public.curriculums;
-CREATE POLICY "Content read access" ON public.curriculums FOR SELECT USING (auth.role() = 'authenticated');
-DROP POLICY IF EXISTS "Content write access" ON public.curriculums;
-CREATE POLICY "Content write access" ON public.curriculums FOR ALL USING (get_user_role(auth.uid()) IN ('admin', 'teacher'));
-
-DROP POLICY IF EXISTS "Units read access" ON public.units;
-CREATE POLICY "Units read access" ON public.units FOR SELECT USING (auth.role() = 'authenticated');
-DROP POLICY IF EXISTS "Units write access" ON public.units;
-CREATE POLICY "Units write access" ON public.units FOR ALL USING (get_user_role(auth.uid()) IN ('admin', 'teacher'));
-
-DROP POLICY IF EXISTS "Lessons read access" ON public.lessons;
-CREATE POLICY "Lessons read access" ON public.lessons FOR SELECT USING (auth.role() = 'authenticated');
-DROP POLICY IF EXISTS "Lessons write access" ON public.lessons;
-CREATE POLICY "Lessons write access" ON public.lessons FOR ALL USING (get_user_role(auth.uid()) IN ('admin', 'teacher'));
-
--- 4. QUIZZES
-CREATE TABLE IF NOT EXISTS public.quizzes (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  title TEXT NOT NULL,
-  description TEXT,
-  grade TEXT,
-  subject TEXT,
-  category TEXT,
-  duration INT,
-  is_premium BOOLEAN DEFAULT false,
-  max_attempts INT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS public.questions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  text TEXT NOT NULL,
-  type TEXT,
-  choices JSONB,
-  correct_choice_id TEXT,
-  score INT,
-  unit_id UUID REFERENCES public.units ON DELETE CASCADE,
-  difficulty TEXT,
-  solution TEXT,
-  image_url TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS public.quiz_questions (
-  quiz_id UUID NOT NULL REFERENCES public.quizzes ON DELETE CASCADE,
-  question_id UUID NOT NULL REFERENCES public.questions ON DELETE CASCADE,
-  PRIMARY KEY (quiz_id, question_id)
-);
-
-CREATE TABLE IF NOT EXISTS public.student_quiz_attempts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  student_id UUID NOT NULL REFERENCES public.profiles ON DELETE CASCADE,
-  quiz_id UUID NOT NULL REFERENCES public.quizzes ON DELETE CASCADE,
-  score INT,
-  max_score INT,
-  answers JSONB,
-  time_spent INT,
-  status TEXT DEFAULT 'completed'::text,
-  manual_grades JSONB,
-  completed_at TIMESTAMPTZ DEFAULT NOW()
-);
-
+-- 8. POLICIES & SECURITY
 ALTER TABLE public.quizzes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.questions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.quiz_questions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.student_quiz_attempts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.curriculums ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.units ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.lessons ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Quiz read" ON public.quizzes;
-CREATE POLICY "Quiz read" ON public.quizzes FOR SELECT USING (auth.role() = 'authenticated');
-DROP POLICY IF EXISTS "Quiz write" ON public.quizzes;
-CREATE POLICY "Quiz write" ON public.quizzes FOR ALL USING (get_user_role(auth.uid()) IN ('admin', 'teacher'));
+-- Helper Function
+CREATE OR REPLACE FUNCTION public.get_user_role(user_id UUID)
+RETURNS TEXT AS $$
+DECLARE
+  user_role TEXT;
+BEGIN
+  SELECT role INTO user_role FROM public.profiles WHERE id = user_id;
+  RETURN user_role;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
-DROP POLICY IF EXISTS "Question read" ON public.questions;
-CREATE POLICY "Question read" ON public.questions FOR SELECT USING (auth.role() = 'authenticated');
-DROP POLICY IF EXISTS "Question write" ON public.questions;
-CREATE POLICY "Question write" ON public.questions FOR ALL USING (get_user_role(auth.uid()) IN ('admin', 'teacher'));
+-- Basic Policies (Drop first to avoid errors)
+DROP POLICY IF EXISTS "Public profiles are viewable by authenticated users." ON public.profiles;
+CREATE POLICY "Public profiles are viewable by authenticated users." ON public.profiles FOR SELECT USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Users can insert their own profile." ON public.profiles;
+CREATE POLICY "Users can insert their own profile." ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
+DROP POLICY IF EXISTS "Users can update their own profile." ON public.profiles;
+CREATE POLICY "Users can update their own profile." ON public.profiles FOR UPDATE USING (auth.uid() = id);
 
-DROP POLICY IF EXISTS "QuizQuestion read" ON public.quiz_questions;
-CREATE POLICY "QuizQuestion read" ON public.quiz_questions FOR SELECT USING (auth.role() = 'authenticated');
-DROP POLICY IF EXISTS "QuizQuestion write" ON public.quiz_questions;
-CREATE POLICY "QuizQuestion write" ON public.quiz_questions FOR ALL USING (get_user_role(auth.uid()) IN ('admin', 'teacher'));
+DROP POLICY IF EXISTS "Quizzes read" ON public.quizzes;
+CREATE POLICY "Quizzes read" ON public.quizzes FOR SELECT USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Quizzes write" ON public.quizzes;
+CREATE POLICY "Quizzes write" ON public.quizzes FOR ALL USING (get_user_role(auth.uid()) IN ('admin', 'teacher'));
 
 DROP POLICY IF EXISTS "Attempts read own" ON public.student_quiz_attempts;
 CREATE POLICY "Attempts read own" ON public.student_quiz_attempts FOR SELECT USING (auth.uid() = student_id OR get_user_role(auth.uid()) IN ('admin', 'teacher'));
@@ -222,174 +194,6 @@ DROP POLICY IF EXISTS "Attempts insert" ON public.student_quiz_attempts;
 CREATE POLICY "Attempts insert" ON public.student_quiz_attempts FOR INSERT WITH CHECK (auth.uid() = student_id);
 DROP POLICY IF EXISTS "Attempts update" ON public.student_quiz_attempts;
 CREATE POLICY "Attempts update" ON public.student_quiz_attempts FOR UPDATE USING (get_user_role(auth.uid()) IN ('admin', 'teacher'));
-
--- 5. SETTINGS & EXTRAS
-CREATE TABLE IF NOT EXISTS public.settings (
-  key TEXT PRIMARY KEY,
-  value JSONB
-);
-ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Settings read" ON public.settings;
-CREATE POLICY "Settings read" ON public.settings FOR SELECT USING (true);
-DROP POLICY IF EXISTS "Settings write" ON public.settings;
-CREATE POLICY "Settings write" ON public.settings FOR ALL USING (get_user_role(auth.uid()) = 'admin');
-
-CREATE TABLE IF NOT EXISTS public.home_page_content (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  type TEXT,
-  placement TEXT,
-  priority TEXT,
-  title TEXT,
-  content TEXT,
-  image_url TEXT,
-  cta_text TEXT,
-  cta_link TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE public.home_page_content ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "HomeContent read" ON public.home_page_content;
-CREATE POLICY "HomeContent read" ON public.home_page_content FOR SELECT USING (true);
-DROP POLICY IF EXISTS "HomeContent write" ON public.home_page_content;
-CREATE POLICY "HomeContent write" ON public.home_page_content FOR ALL USING (get_user_role(auth.uid()) = 'admin');
-
-CREATE TABLE IF NOT EXISTS public.live_sessions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  title TEXT,
-  teacher_name TEXT,
-  start_time TEXT,
-  status TEXT,
-  topic TEXT,
-  platform TEXT,
-  stream_url TEXT,
-  meeting_id TEXT,
-  passcode TEXT,
-  target_grades TEXT[],
-  is_premium BOOLEAN DEFAULT false,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE public.live_sessions ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Sessions read" ON public.live_sessions;
-CREATE POLICY "Sessions read" ON public.live_sessions FOR SELECT USING (auth.role() = 'authenticated');
-DROP POLICY IF EXISTS "Sessions write" ON public.live_sessions;
-CREATE POLICY "Sessions write" ON public.live_sessions FOR ALL USING (get_user_role(auth.uid()) IN ('admin', 'teacher'));
-
--- 6. INTERACTIVE LESSONS
-CREATE TABLE IF NOT EXISTS public.lesson_scenes (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  lesson_id UUID NOT NULL REFERENCES public.lessons ON DELETE CASCADE,
-  title TEXT,
-  content JSONB,
-  decisions JSONB,
-  is_premium BOOLEAN DEFAULT false,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE public.lesson_scenes ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Scenes read" ON public.lesson_scenes;
-CREATE POLICY "Scenes read" ON public.lesson_scenes FOR SELECT USING (auth.role() = 'authenticated');
-DROP POLICY IF EXISTS "Scenes write" ON public.lesson_scenes;
-CREATE POLICY "Scenes write" ON public.lesson_scenes FOR ALL USING (get_user_role(auth.uid()) IN ('admin', 'teacher'));
-
-CREATE TABLE IF NOT EXISTS public.student_lesson_progress (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  student_id UUID NOT NULL REFERENCES public.profiles ON DELETE CASCADE,
-  lesson_id UUID NOT NULL REFERENCES public.lessons ON DELETE CASCADE,
-  current_scene_id UUID NOT NULL REFERENCES public.lesson_scenes ON DELETE CASCADE,
-  answers JSONB,
-  uploaded_files JSONB,
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(student_id, lesson_id)
-);
-ALTER TABLE public.student_lesson_progress ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Progress own" ON public.student_lesson_progress;
-CREATE POLICY "Progress own" ON public.student_lesson_progress FOR ALL USING (auth.uid() = student_id);
-
-CREATE TABLE IF NOT EXISTS public.student_interaction_events (
-    id BIGSERIAL PRIMARY KEY,
-    student_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-    lesson_id UUID NOT NULL REFERENCES public.lessons(id) ON DELETE CASCADE,
-    from_scene_id UUID REFERENCES public.lesson_scenes(id) ON DELETE SET NULL,
-    to_scene_id UUID REFERENCES public.lesson_scenes(id) ON DELETE SET NULL,
-    decision_text TEXT,
-    event_type TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE public.student_interaction_events ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Event insert" ON public.student_interaction_events;
-CREATE POLICY "Event insert" ON public.student_interaction_events FOR INSERT WITH CHECK (auth.uid() = student_id);
-DROP POLICY IF EXISTS "Event read" ON public.student_interaction_events;
-CREATE POLICY "Event read" ON public.student_interaction_events FOR SELECT USING (get_user_role(auth.uid()) IN ('admin', 'teacher'));
-
--- 7. FORUMS
-CREATE TABLE IF NOT EXISTS public.forum_sections (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  title TEXT,
-  description TEXT,
-  "order" INT
-);
-CREATE TABLE IF NOT EXISTS public.forums (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  section_id UUID REFERENCES public.forum_sections ON DELETE CASCADE,
-  title TEXT,
-  description TEXT,
-  icon TEXT,
-  image_url TEXT,
-  "order" INT,
-  moderator_uid UUID,
-  moderator_name TEXT
-);
-CREATE TABLE IF NOT EXISTS public.forum_posts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  author_uid UUID,
-  author_name TEXT,
-  author_email TEXT,
-  title TEXT,
-  content TEXT,
-  tags TEXT[],
-  upvotes INT DEFAULT 0,
-  replies JSONB DEFAULT '[]'::jsonb,
-  is_pinned BOOLEAN DEFAULT false,
-  is_escalated BOOLEAN DEFAULT false,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE public.forum_sections ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.forums ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.forum_posts ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Forums read" ON public.forum_sections;
-CREATE POLICY "Forums read" ON public.forum_sections FOR SELECT USING (true);
-DROP POLICY IF EXISTS "Forums write" ON public.forum_sections;
-CREATE POLICY "Forums write" ON public.forum_sections FOR ALL USING (get_user_role(auth.uid()) = 'admin');
-
-DROP POLICY IF EXISTS "Subforums read" ON public.forums;
-CREATE POLICY "Subforums read" ON public.forums FOR SELECT USING (true);
-DROP POLICY IF EXISTS "Subforums write" ON public.forums;
-CREATE POLICY "Subforums write" ON public.forums FOR ALL USING (get_user_role(auth.uid()) = 'admin');
-
-DROP POLICY IF EXISTS "Posts read" ON public.forum_posts;
-CREATE POLICY "Posts read" ON public.forum_posts FOR SELECT USING (auth.role() = 'authenticated');
-DROP POLICY IF EXISTS "Posts insert" ON public.forum_posts;
-CREATE POLICY "Posts insert" ON public.forum_posts FOR INSERT WITH CHECK (auth.role() = 'authenticated');
-DROP POLICY IF EXISTS "Posts update" ON public.forum_posts;
-CREATE POLICY "Posts update" ON public.forum_posts FOR UPDATE USING (auth.uid() = author_uid OR get_user_role(auth.uid()) = 'admin');
-
--- 8. EXPERIMENTS
-CREATE TABLE IF NOT EXISTS public.experiments (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  title TEXT,
-  description TEXT,
-  thumbnail TEXT,
-  grade TEXT,
-  type TEXT,
-  custom_html TEXT,
-  is_future_lab BOOLEAN DEFAULT false,
-  parameters JSONB DEFAULT '[]'::jsonb,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE public.experiments ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Exp read" ON public.experiments;
-CREATE POLICY "Exp read" ON public.experiments FOR SELECT USING (auth.role() = 'authenticated');
-DROP POLICY IF EXISTS "Exp write" ON public.experiments;
-CREATE POLICY "Exp write" ON public.experiments FOR ALL USING (get_user_role(auth.uid()) IN ('admin', 'teacher'));
 
 -- 9. NOTIFICATIONS & INVOICES
 CREATE TABLE IF NOT EXISTS public.notifications (
@@ -425,6 +229,22 @@ DROP POLICY IF EXISTS "Invoice read own" ON public.invoices;
 CREATE POLICY "Invoice read own" ON public.invoices FOR SELECT USING (auth.uid() = user_id OR get_user_role(auth.uid()) = 'admin');
 DROP POLICY IF EXISTS "Invoice manage" ON public.invoices;
 CREATE POLICY "Invoice manage" ON public.invoices FOR ALL USING (get_user_role(auth.uid()) = 'admin');
+
+-- 10. NEW USER TRIGGER
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, name, email, photo_url)
+  VALUES (new.id, new.raw_user_meta_data->>'full_name', new.email, new.raw_user_meta_data->>'avatar_url')
+  ON CONFLICT (id) DO NOTHING;
+  RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 `;
 
     const handleCopy = () => {
@@ -458,7 +278,7 @@ CREATE POLICY "Invoice manage" ON public.invoices FOR ALL USING (get_user_role(a
                                     <li>اذهب إلى لوحة تحكم <b>Supabase</b>.</li>
                                     <li>من القائمة الجانبية، اختر <b>SQL Editor</b>.</li>
                                     <li>الصق الكود واضغط على <b className="text-white">Run</b>.</li>
-                                    <li>سيتم إصلاح الجداول وإضافة الأعمدة المفقودة (مثل email, role) تلقائياً.</li>
+                                    <li>سيتم حل مشكلة توافق الأنواع (UUID/TEXT) تلقائياً.</li>
                                 </ol>
                             </div>
                         </div>

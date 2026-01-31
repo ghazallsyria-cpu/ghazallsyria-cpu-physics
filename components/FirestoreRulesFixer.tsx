@@ -10,16 +10,6 @@ ALTER DEFAULT PRIVILEGES REVOKE ALL ON TABLES FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES REVOKE ALL ON FUNCTIONS FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES REVOKE ALL ON SEQUENCES FROM PUBLIC;
 
-CREATE OR REPLACE FUNCTION public.get_user_role(user_id UUID)
-RETURNS TEXT AS $$
-DECLARE
-  user_role TEXT;
-BEGIN
-  SELECT role INTO user_role FROM public.profiles WHERE id = user_id;
-  RETURN user_role;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
 -- 2. PROFILES TABLE
 CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID NOT NULL REFERENCES auth.users ON DELETE CASCADE,
@@ -43,8 +33,30 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   last_seen TIMESTAMPTZ,
   PRIMARY KEY (id)
 );
+
+-- ENSURE CRITICAL COLUMNS EXIST (Migration Fix)
+DO $$
+BEGIN
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'student'::text NOT NULL;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS subscription_status TEXT DEFAULT 'free'::text NOT NULL;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS grade TEXT;
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS progress JSONB DEFAULT '{}'::jsonb;
+EXCEPTION
+    WHEN duplicate_column THEN RAISE NOTICE 'column already exists';
+END $$;
+
 CREATE INDEX IF NOT EXISTS profiles_role_idx ON public.profiles (role);
 CREATE INDEX IF NOT EXISTS profiles_email_idx ON public.profiles (email);
+
+CREATE OR REPLACE FUNCTION public.get_user_role(user_id UUID)
+RETURNS TEXT AS $$
+DECLARE
+  user_role TEXT;
+BEGIN
+  SELECT role INTO user_role FROM public.profiles WHERE id = user_id;
+  RETURN user_role;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public profiles are viewable by authenticated users." ON public.profiles;
@@ -53,6 +65,8 @@ DROP POLICY IF EXISTS "Users can insert their own profile." ON public.profiles;
 CREATE POLICY "Users can insert their own profile." ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
 DROP POLICY IF EXISTS "Users can update their own profile." ON public.profiles;
 CREATE POLICY "Users can update their own profile." ON public.profiles FOR UPDATE USING (auth.uid() = id);
+DROP POLICY IF EXISTS "Admins can manage all profiles." ON public.profiles;
+CREATE POLICY "Admins can manage all profiles." ON public.profiles FOR ALL USING (get_user_role(auth.uid()) = 'admin');
 
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
@@ -430,7 +444,7 @@ CREATE POLICY "Invoice manage" ON public.invoices FOR ALL USING (get_user_role(a
                                     <li>اذهب إلى لوحة تحكم <b>Supabase</b>.</li>
                                     <li>من القائمة الجانبية، اختر <b>SQL Editor</b>.</li>
                                     <li>الصق الكود واضغط على <b className="text-white">Run</b>.</li>
-                                    <li>سيتم إنشاء جميع الجداول (Profiles, Lessons, Quizzes...) وتفعيل سياسات الأمان تلقائياً.</li>
+                                    <li>سيتم إصلاح الجداول وإضافة الأعمدة المفقودة (مثل role) تلقائياً.</li>
                                 </ol>
                             </div>
                         </div>
